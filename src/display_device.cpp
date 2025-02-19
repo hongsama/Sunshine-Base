@@ -19,7 +19,8 @@
 #include "audio.h"
 #include "platform/common.h"
 #include "rtsp.h"
-
+#include "confighttp.h"
+//#include "to_string.h"
 // platform-specific includes
 #ifdef _WIN32
   #include <display_device/windows/settings_manager.h>
@@ -129,6 +130,8 @@ namespace display_device {
       return result;
     }
 
+    
+
     /**
      * @brief Parse resolution value from the string.
      * @param input String to be parsed.
@@ -175,6 +178,8 @@ namespace display_device {
 
       return false;
     }
+
+    
 
     /**
      * @brief Parse refresh rate value from the string.
@@ -316,6 +321,8 @@ namespace display_device {
                 static_cast<unsigned int>(session.width),
                 static_cast<unsigned int>(session.height)
               };
+
+              BOOST_LOG(info)<< "Resolution provided by client session config is  " << session.width << "x" << session.height;
             } else {
               BOOST_LOG(error) << "Resolution provided by client session config is invalid: " << session.width << "x" << session.height;
               return false;
@@ -419,6 +426,36 @@ namespace display_device {
       }
 
       return std::nullopt;
+    }
+  /*linglong to_string*/
+     std::string to_string(const Resolution &value) {
+    std::stringstream output;
+    output << value.m_width << "x" << value.m_height;
+    return output.str();
+  }
+
+    /*
+    linglong prepare vdd
+    */
+    void prepare_vdd(SingleDisplayConfiguration &config, const rtsp_stream::launch_session_t &session) {
+
+      std::stringstream write_resolutions;
+      write_resolutions << "[";
+      write_resolutions << to_string(*config.m_resolution) << "]";
+      display_device::Resolution res=*config.m_resolution;
+      int r_width= res.m_width;
+      int r_height=res.m_height;
+      int r_fps=session.fps;
+  
+      std::stringstream write_fps;
+      write_fps << session.fps;
+      
+          confighttp::saveVddSettings(r_width,r_height,r_fps, config::video.adapter_name);
+          BOOST_LOG(info) << "Set Client request res to VDD: "sv << write_fps.str();
+    
+        
+      
+  
     }
 
     /**
@@ -773,8 +810,44 @@ namespace display_device {
     // want to revert active configuration in case we have any
   }
 
+  void start_vdd(){
+   
+    system(".\\assets\\DevManView.exe /enable \"Virtual Display Driver\"");
+ 
+    std::this_thread::sleep_for(std::chrono::milliseconds(3000));
+    
+  }
+
+  void stop_vdd(){
+   
+    bool re=reset_persistence();
+    if (re)
+      BOOST_LOG(info) << "STOP RESET DISPLAY STATE OK"sv;
+       system(".\\assets\\DevManView.exe /disable \"Virtual Display Driver\"");
+  }
+
+
+  void init_output(){
+
+   
+
+
+
+  }
+  /*linglong reset displaystate*/
+
+  
+  
+
+
   void configure_display(const SingleDisplayConfiguration &config) {
     std::lock_guard lock {DD_DATA.mutex};
+    
+    //linglong 开始串流 启动虚拟显示器
+    //system(".\\DevManView.exe /enable ROOT\\DISPLAY\\0000");
+    start_vdd();
+    //BOOST_LOG(info) << "VDD DISCONNECTED,.\\DevManView.exe /enable  ROOT\\DISPLAY\\0000"sv;
+
     if (!DD_DATA.sm_instance) {
       // Platform is not supported, nothing to do.
       return;
@@ -783,9 +856,34 @@ namespace display_device {
     DD_DATA.sm_instance->schedule([config](auto &settings_iface, auto &stop_token) {
       // We only want to keep retrying in case of a transient errors.
       // In other cases, when we either fail or succeed we just want to stop...
+
+      /*
+       enumerate all devices 
+       find the device that's named VDD
+       change config.video.output_name to the new id
+      */
+      EnumeratedDeviceList av_devices=settings_iface.enumAvailableDevices();
+      int i=0;
+      int avsize=av_devices.size();
+      while (i<avsize)
+      {
+        if (av_devices[i].m_friendly_name=="VDD by MTT")
+        {
+          
+          config::video.output_name=av_devices[i].m_device_id;
+          BOOST_LOG(info) << "linglong new output"<<av_devices[i].m_device_id;
+        }
+        
+        i++;
+        /* code */
+      }
+      
+
       if (settings_iface.applySettings(config) != SettingsManagerInterface::ApplyResult::ApiTemporarilyUnavailable) {
         stop_token.requestStop();
       }
+     
+
     },
                                   {.m_sleep_durations = {DEFAULT_RETRY_INTERVAL}});
   }
@@ -847,6 +945,10 @@ namespace display_device {
       // Error already logged
       return failed_to_parse_tag_t {};
     }
+    
+    prepare_vdd(config,session);
+
+    
 
     return config;
   }

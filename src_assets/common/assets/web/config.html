@@ -175,7 +175,6 @@
               "dd_manual_refresh_rate": "",
               "dd_hdr_option": "auto",
               "dd_config_revert_delay": 3000,
-              "dd_config_revert_on_disconnect": "disabled",
               "dd_mode_remapping": {"mixed": [], "resolution_only": [], "refresh_rate_only": []},
               "dd_wa_hdr_toggle": "disabled",
               "min_fps_factor": 1,
@@ -343,7 +342,10 @@
         this.$forceUpdate()
       },
       serialize() {
-        return JSON.parse(JSON.stringify(this.config));
+        let config = JSON.parse(JSON.stringify(this.config));
+        config.global_prep_cmd = JSON.stringify(config.global_prep_cmd);
+        config.dd_mode_remapping = JSON.stringify(config.dd_mode_remapping);
+        return config;
       },
       save() {
         this.saved = false;
@@ -357,8 +359,17 @@
           Object.keys(tab.options).forEach(optionKey => {
             let delete_value = false
 
+            if (["global_prep_cmd", "dd_mode_remapping"].includes(optionKey)) {
+              const config_value = config[optionKey]
+              const default_value = JSON.stringify(tab.options[optionKey])
+
+              if (config_value === default_value) {
+                delete_value = true
+              }
+            }
+
             // todo: add proper type checking
-            if (JSON.stringify(config[optionKey]) === JSON.stringify(tab.options[optionKey])) {
+            if (String(config[optionKey]) === String(tab.options[optionKey])) {
               delete_value = true
             }
 

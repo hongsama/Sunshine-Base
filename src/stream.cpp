@@ -573,7 +573,12 @@ namespace stream {
           BOOST_LOG(info) << "CLIENT CONNECTED"sv;
           break;
         case ENET_EVENT_TYPE_DISCONNECT:
+          //linglong 退出串流
           BOOST_LOG(info) << "CLIENT DISCONNECTED"sv;
+      ///    system(".\DevManView.exe /enabLe ROOT\DISPLAY\0000")
+       //   system(".\\DevManView.exe /disable ROOT\\DISPLAY\\0000");
+          display_device::stop_vdd();
+           BOOST_LOG(info) << "VDD DISCONNECTED,.\\DevManView.exe /disable ROOT\\DISPLAY\\0000"sv;
           // No more clients to send video data to ^_^
           if (session->state == session::state_e::RUNNING) {
             session::stop(*session);
@@ -1882,17 +1887,11 @@ namespace stream {
 
       // If this is the last session, invoke the platform callbacks
       if (--running_sessions == 0) {
-        bool revert_display_config {config::video.dd.config_revert_on_disconnect};
         if (proc::proc.running()) {
 #if defined SUNSHINE_TRAY && SUNSHINE_TRAY >= 1
           system_tray::update_tray_pausing(proc::proc.get_last_run_app_name());
 #endif
         } else {
-          // We have no app running and also no clients anymore.
-          revert_display_config = true;
-        }
-
-        if (revert_display_config) {
           display_device::revert_configuration();
         }
 

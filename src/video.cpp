@@ -1025,6 +1025,7 @@ namespace video {
 
   void reset_display(std::shared_ptr<platf::display_t> &disp, const platf::mem_type_e &type, const std::string &display_name, const config_t &config) {
     // We try this twice, in case we still get an error on reinitialization
+    //linglong reset
     for (int x = 0; x < 2; ++x) {
       disp.reset();
       disp = platf::display(type, display_name, config);
@@ -2706,11 +2707,11 @@ namespace video {
 
     if (chosen_encoder == nullptr) {
       const auto output_name {display_device::map_output_name(config::video.output_name)};
-      BOOST_LOG(fatal) << "Unable to find display or encoder during startup."sv;
+      BOOST_LOG(info) << "Unable to find display or encoder during startup."sv;
       if (!config::video.adapter_name.empty() || !output_name.empty()) {
         BOOST_LOG(fatal) << "Please ensure your manually chosen GPU and monitor are connected and powered on."sv;
       } else {
-        BOOST_LOG(fatal) << "Please check that a display is connected and powered on."sv;
+        BOOST_LOG(info) << "Please check that a display is connected and powered on."sv;
       }
       return -1;
     }

@@ -146,6 +146,12 @@ int main(int argc, char *argv[]) {
   if (!display_device_deinit_guard) {
     BOOST_LOG(error) << "Display device session failed to initialize"sv;
   }
+  /*linglong stop
+    reset output_name  
+  */
+  display_device::stop_vdd();
+
+
 
 #ifdef WIN32
   // Modify relevant NVIDIA control panel settings if the system has corresponding gpu

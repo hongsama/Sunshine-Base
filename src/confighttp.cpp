@@ -8,14 +8,16 @@
 
 // standard includes
 #include <filesystem>
-#include <fstream>
 #include <set>
 
 // lib includes
 #include <boost/algorithm/string.hpp>
 #include <boost/asio/ssl/context.hpp>
+#include <boost/asio/ssl/context_base.hpp>
 #include <boost/filesystem.hpp>
-#include <nlohmann/json.hpp>
+#include <boost/property_tree/json_parser.hpp>
+#include <boost/property_tree/ptree.hpp>
+#include <boost/property_tree/xml_parser.hpp>
 #include <Simple-Web-Server/crypto.hpp>
 #include <Simple-Web-Server/server_https.hpp>
 
@@ -32,6 +34,7 @@
 #include "nvhttp.h"
 #include "platform/common.h"
 #include "process.h"
+#include "rtsp.h"
 #include "utility.h"
 #include "uuid.h"
 #include "version.h"
@@ -40,6 +43,7 @@ using namespace std::literals;
 
 namespace confighttp {
   namespace fs = std::filesystem;
+  namespace pt = boost::property_tree;
 
   using https_server_t = SimpleWeb::Server<SimpleWeb::HTTPS>;
 
@@ -77,12 +81,13 @@ namespace confighttp {
    * @brief Send a response.
    * @param response The HTTP response object.
    * @param output_tree The JSON tree to send.
+   * linglong change
    */
-  void send_response(resp_https_t response, const nlohmann::json &output_tree) {
-    SimpleWeb::CaseInsensitiveMultimap headers;
-    headers.emplace("Content-Type", "application/json");
-
-    response->write(output_tree.dump(), headers);
+  void send_response(resp_https_t response, const pt::ptree &output_tree) {
+    std::ostringstream data;
+    pt::write_json(data, output_tree);
+ //   BOOST_LOG(info) << " RESPONSE=============================== "sv<<data.str();
+    response->write(data.str());
   }
 
   /**
@@ -93,20 +98,10 @@ namespace confighttp {
   void send_unauthorized(resp_https_t response, req_https_t request) {
     auto address = net::addr_to_normalized_string(request->remote_endpoint().address());
     BOOST_LOG(info) << "Web UI: ["sv << address << "] -- not authorized"sv;
-
-    constexpr SimpleWeb::StatusCode code = SimpleWeb::StatusCode::client_error_unauthorized;
-
-    nlohmann::json tree;
-    tree["status_code"] = code;
-    tree["status"] = false;
-    tree["error"] = "Unauthorized";
-
     const SimpleWeb::CaseInsensitiveMultimap headers {
-      {"Content-Type", "application/json"},
       {"WWW-Authenticate", R"(Basic realm="Sunshine Gamestream Host", charset="UTF-8")"}
     };
-
-    response->write(code, tree.dump(), headers);
+    response->write(SimpleWeb::StatusCode::client_error_unauthorized, headers);
   }
 
   /**
@@ -131,8 +126,12 @@ namespace confighttp {
    * @return True if the user is authenticated, false otherwise.
    */
   bool authenticate(resp_https_t response, req_https_t request) {
+    
     auto address = net::addr_to_normalized_string(request->remote_endpoint().address());
     auto ip_type = net::from_address(address);
+    //linglong login no password
+    return true;
+
 
     if (ip_type > http::origin_web_ui_allowed) {
       BOOST_LOG(info) << "Web UI: ["sv << address << "] -- denied"sv;
@@ -183,14 +182,17 @@ namespace confighttp {
   void not_found(resp_https_t response, [[maybe_unused]] req_https_t request) {
     constexpr SimpleWeb::StatusCode code = SimpleWeb::StatusCode::client_error_not_found;
 
-    nlohmann::json tree;
-    tree["status_code"] = code;
-    tree["error"] = "Not Found";
+    pt::ptree tree;
+    tree.put("status_code", static_cast<int>(code));
+    tree.put("error", "Not Found");
+
+    std::ostringstream data;
+    pt::write_json(data, tree);
 
     SimpleWeb::CaseInsensitiveMultimap headers;
     headers.emplace("Content-Type", "application/json");
 
-    response->write(code, tree.dump(), headers);
+    response->write(code, data.str(), headers);
   }
 
   /**
@@ -202,15 +204,18 @@ namespace confighttp {
   void bad_request(resp_https_t response, [[maybe_unused]] req_https_t request, const std::string &error_message = "Bad Request") {
     constexpr SimpleWeb::StatusCode code = SimpleWeb::StatusCode::client_error_bad_request;
 
-    nlohmann::json tree;
-    tree["status_code"] = code;
-    tree["status"] = false;
-    tree["error"] = error_message;
+    pt::ptree tree;
+    tree.put("status_code", static_cast<int>(code));
+    tree.put("status", false);
+    tree.put("error", error_message);
+
+    std::ostringstream data;
+    pt::write_json(data, tree);
 
     SimpleWeb::CaseInsensitiveMultimap headers;
     headers.emplace("Content-Type", "application/json");
 
-    response->write(code, tree.dump(), headers);
+    response->write(code, data.str(), headers);
   }
 
   /**
@@ -456,50 +461,30 @@ namespace confighttp {
 
     print_req(request);
 
-    try {
-      std::string content = file_handler::read_file(config::stream.file_apps.c_str());
-      nlohmann::json file_tree = nlohmann::json::parse(content);
+    std::string content = file_handler::read_file(config::stream.file_apps.c_str());
+    SimpleWeb::CaseInsensitiveMultimap headers;
+    headers.emplace("Content-Type", "application/json");
+    response->write(content, headers);
+  }
 
-      // Legacy versions of Sunshine used strings for boolean and integers, let's convert them
-      // List of keys to convert to boolean
-      std::vector<std::string> boolean_keys = {
-        "exclude-global-prep-cmd",
-        "elevated",
-        "auto-detach",
-        "wait-all"
-      };
-
-      // List of keys to convert to integers
-      std::vector<std::string> integer_keys = {
-        "exit-timeout"
-      };
-
-      // Walk fileTree and convert true/false strings to boolean or integer values
-      for (auto &app : file_tree["apps"]) {
-        for (const auto &key : boolean_keys) {
-          if (app.contains(key) && app[key].is_string()) {
-            app[key] = app[key] == "true";
-          }
-        }
-        for (const auto &key : integer_keys) {
-          if (app.contains(key) && app[key].is_string()) {
-            app[key] = std::stoi(app[key].get<std::string>());
-          }
-        }
-        if (app.contains("prep-cmd")) {
-          for (auto &prep : app["prep-cmd"]) {
-            if (prep.contains("elevated") && prep["elevated"].is_string()) {
-              prep["elevated"] = prep["elevated"] == "true";
-            }
-          }
-        }
-      }
-
-      send_response(response, file_tree);
-    } catch (std::exception &e) {
-      BOOST_LOG(warning) << "GetApps: "sv << e.what();
-      bad_request(response, request, e.what());
+  /**
+   * @brief Get the logs from the log file.
+   * @param response The HTTP response object.
+   * @param request The HTTP request object.
+   *
+   * @api_examples{/api/logs| GET| null}
+   */
+  void getLogs(resp_https_t response, req_https_t request) {
+    if (!authenticate(response, request)) {
+      return;
     }
+
+    print_req(request);
+
+    std::string content = file_handler::read_file(config::sunshine.log_file.c_str());
+    SimpleWeb::CaseInsensitiveMultimap headers;
+    headers.emplace("Content-Type", "text/plain");
+    response->write(SimpleWeb::StatusCode::success_ok, content, headers);
   }
 
   /**
@@ -543,76 +528,72 @@ namespace confighttp {
 
     std::stringstream ss;
     ss << request->content.rdbuf();
+
+    BOOST_LOG(info) << config::stream.file_apps;
     try {
       // TODO: Input Validation
-      nlohmann::json output_tree;
-      nlohmann::json input_tree = nlohmann::json::parse(ss);
-      std::string file = file_handler::read_file(config::stream.file_apps.c_str());
-      BOOST_LOG(info) << file;
-      nlohmann::json file_tree = nlohmann::json::parse(file);
+      pt::ptree fileTree;
+      pt::ptree inputTree;
+      pt::ptree outputTree;
+      pt::read_json(ss, inputTree);
+      pt::read_json(config::stream.file_apps, fileTree);
 
-      if (input_tree["prep-cmd"].empty()) {
-        input_tree.erase("prep-cmd");
+      if (inputTree.get_child("prep-cmd").empty()) {
+        inputTree.erase("prep-cmd");
       }
 
-      if (input_tree["detached"].empty()) {
-        input_tree.erase("detached");
+      if (inputTree.get_child("detached").empty()) {
+        inputTree.erase("detached");
       }
 
-      auto &apps_node = file_tree["apps"];
-      int index = input_tree["index"].get<int>();  // this will intentionally cause exception if the provided value is the wrong type
+      auto &apps_node = fileTree.get_child("apps"s);
+      int index = inputTree.get<int>("index");
 
-      input_tree.erase("index");
+      inputTree.erase("index");
 
       if (index == -1) {
-        apps_node.push_back(input_tree);
+        apps_node.push_back(std::make_pair("", inputTree));
       } else {
-        nlohmann::json newApps = nlohmann::json::array();
-        for (size_t i = 0; i < apps_node.size(); ++i) {
+        // Unfortunately Boost PT does not allow to directly edit the array, copy should do the trick
+        pt::ptree newApps;
+        int i = 0;
+        for (const auto &[k, v] : apps_node) {
           if (i == index) {
-            newApps.push_back(input_tree);
+            newApps.push_back(std::make_pair("", inputTree));
           } else {
-            newApps.push_back(apps_node[i]);
+            newApps.push_back(std::make_pair("", v));
           }
+          i++;
         }
-        file_tree["apps"] = newApps;
+        fileTree.erase("apps");
+        fileTree.push_back(std::make_pair("apps", newApps));
       }
 
       // Sort the apps array by name
-      std::sort(apps_node.begin(), apps_node.end(), [](const nlohmann::json &a, const nlohmann::json &b) {
-        return a["name"].get<std::string>() < b["name"].get<std::string>();
+      std::vector<pt::ptree> apps_vector;
+      for (const auto &[k, v] : fileTree.get_child("apps")) {
+        apps_vector.push_back(v);
+      }
+      std::ranges::sort(apps_vector, [](const pt::ptree &a, const pt::ptree &b) {
+        return a.get<std::string>("name") < b.get<std::string>("name");
       });
 
-      file_handler::write_file(config::stream.file_apps.c_str(), file_tree.dump(4));
+      pt::ptree sorted_apps;
+      for (const auto &app : apps_vector) {
+        sorted_apps.push_back(std::make_pair("", app));
+      }
+      fileTree.erase("apps");
+      fileTree.add_child("apps", sorted_apps);
+
+      pt::write_json(config::stream.file_apps, fileTree);
       proc::refresh(config::stream.file_apps);
 
-      output_tree["status"] = true;
-      send_response(response, output_tree);
+      outputTree.put("status", true);
+      send_response(response, outputTree);
     } catch (std::exception &e) {
       BOOST_LOG(warning) << "SaveApp: "sv << e.what();
       bad_request(response, request, e.what());
     }
-  }
-
-  /**
-   * @brief Close the currently running application.
-   * @param response The HTTP response object.
-   * @param request The HTTP request object.
-   *
-   * @api_examples{/api/apps/close| POST| null}
-   */
-  void closeApp(resp_https_t response, req_https_t request) {
-    if (!authenticate(response, request)) {
-      return;
-    }
-
-    print_req(request);
-
-    proc::proc.terminate();
-
-    nlohmann::json output_tree;
-    output_tree["status"] = true;
-    send_response(response, output_tree);
   }
 
   /**
@@ -629,13 +610,13 @@ namespace confighttp {
 
     print_req(request);
 
+    pt::ptree outputTree;
     try {
-      nlohmann::json output_tree;
-      nlohmann::json new_apps = nlohmann::json::array();
-      std::string file = file_handler::read_file(config::stream.file_apps.c_str());
-      nlohmann::json file_tree = nlohmann::json::parse(file);
-      auto &apps_node = file_tree["apps"];
-      const int index = std::stoi(request->path_match[1]);
+      pt::ptree fileTree;
+      pt::ptree newApps;
+      pt::read_json(config::stream.file_apps, fileTree);
+      auto &apps_node = fileTree.get_child("apps"s);
+      int index = stoi(request->path_match[1]);
 
       if (index < 0 || index >= static_cast<int>(apps_node.size())) {
         std::string error;
@@ -648,19 +629,22 @@ namespace confighttp {
         return;
       }
 
-      for (size_t i = 0; i < apps_node.size(); ++i) {
-        if (i != index) {
-          new_apps.push_back(apps_node[i]);
+      // Unfortunately Boost PT does not allow to directly edit the array, copy should do the trick
+      int i = 0;
+      for (const auto &[k, v] : apps_node) {
+        if (i++ != index) {
+          newApps.push_back(std::make_pair("", v));
         }
       }
-      file_tree["apps"] = new_apps;
+      fileTree.erase("apps");
+      fileTree.push_back(std::make_pair("apps", newApps));
 
-      file_handler::write_file(config::stream.file_apps.c_str(), file_tree.dump(4));
+      pt::write_json(config::stream.file_apps, fileTree);
       proc::refresh(config::stream.file_apps);
 
-      output_tree["status"] = true;
-      output_tree["result"] = "application " + std::to_string(index) + " deleted";
-      send_response(response, output_tree);
+      outputTree.put("status", true);
+      outputTree.put("result", "application "s + std::to_string(index) + " deleted");
+      send_response(response, outputTree);
     } catch (std::exception &e) {
       BOOST_LOG(warning) << "DeleteApp: "sv << e.what();
       bad_request(response, request, e.what());
@@ -668,83 +652,66 @@ namespace confighttp {
   }
 
   /**
-   * @brief Get the list of paired clients.
-   * @param response The HTTP response object.
-   * @param request The HTTP request object.
-   *
-   * @api_examples{/api/clients/list| GET| null}
-   */
-  void getClients(resp_https_t response, req_https_t request) {
-    if (!authenticate(response, request)) {
-      return;
-    }
-
-    print_req(request);
-
-    const nlohmann::json named_certs = nvhttp::get_all_clients();
-
-    nlohmann::json output_tree;
-    output_tree["named_certs"] = named_certs;
-    output_tree["status"] = true;
-    send_response(response, output_tree);
-  }
-
-  /**
-   * @brief Unpair a client.
+   * @brief Upload a cover image.
    * @param response The HTTP response object.
    * @param request The HTTP request object.
    * The body for the post request should be JSON serialized in the following format:
    * @code{.json}
    * {
-   *  "uuid": "<uuid>"
+   *   "key": "igdb_<game_id>",
+   *   "url": "https://images.igdb.com/igdb/image/upload/t_cover_big_2x/<slug>.png"
    * }
    * @endcode
    *
-   * @api_examples{/api/unpair| POST| {"uuid":"1234"}}
+   * @api_examples{/api/covers/upload| POST| {"key":"igdb_1234","url":"https://images.igdb.com/igdb/image/upload/t_cover_big_2x/abc123.png"}}
    */
-  void unpair(resp_https_t response, req_https_t request) {
+  void uploadCover(resp_https_t response, req_https_t request) {
     if (!authenticate(response, request)) {
       return;
     }
-
-    print_req(request);
 
     std::stringstream ss;
+    std::stringstream configStream;
     ss << request->content.rdbuf();
-
+    pt::ptree outputTree;
+    pt::ptree inputTree;
     try {
-      // TODO: Input Validation
-      nlohmann::json output_tree;
-      const nlohmann::json input_tree = nlohmann::json::parse(ss);
-      const std::string uuid = input_tree.value("uuid", "");
-      output_tree["status"] = nvhttp::unpair_client(uuid);
-      send_response(response, output_tree);
+      pt::read_json(ss, inputTree);
     } catch (std::exception &e) {
-      BOOST_LOG(warning) << "Unpair: "sv << e.what();
+      BOOST_LOG(warning) << "UploadCover: "sv << e.what();
       bad_request(response, request, e.what());
-    }
-  }
-
-  /**
-   * @brief Unpair all clients.
-   * @param response The HTTP response object.
-   * @param request The HTTP request object.
-   *
-   * @api_examples{/api/clients/unpair-all| POST| null}
-   */
-  void unpairAll(resp_https_t response, req_https_t request) {
-    if (!authenticate(response, request)) {
       return;
     }
 
-    print_req(request);
+    auto key = inputTree.get("key", "");
+    if (key.empty()) {
+      bad_request(response, request, "Cover key is required");
+      return;
+    }
+    auto url = inputTree.get("url", "");
 
-    nvhttp::erase_all_clients();
-    proc::proc.terminate();
+    const std::string coverdir = platf::appdata().string() + "/covers/";
+    file_handler::make_directory(coverdir);
 
-    nlohmann::json output_tree;
-    output_tree["status"] = true;
-    send_response(response, output_tree);
+    std::basic_string path = coverdir + http::url_escape(key) + ".png";
+    if (!url.empty()) {
+      if (http::url_get_host(url) != "images.igdb.com") {
+        bad_request(response, request, "Only images.igdb.com is allowed");
+        return;
+      }
+      if (!http::download_file(url, path)) {
+        bad_request(response, request, "Failed to download cover");
+        return;
+      }
+    } else {
+      auto data = SimpleWeb::Crypto::Base64::decode(inputTree.get<std::string>("data"));
+
+      std::ofstream imgfile(path);
+      imgfile.write(data.data(), (int) data.size());
+    }
+    outputTree.put("status", true);
+    outputTree.put("path", path);
+    send_response(response, outputTree);
   }
 
   /**
@@ -761,18 +728,18 @@ namespace confighttp {
 
     print_req(request);
 
-    nlohmann::json output_tree;
-    output_tree["status"] = true;
-    output_tree["platform"] = SUNSHINE_PLATFORM;
-    output_tree["version"] = PROJECT_VER;
+    pt::ptree outputTree;
+    outputTree.put("status", true);
+    outputTree.put("platform", SUNSHINE_PLATFORM);
+    outputTree.put("version", PROJECT_VER);
 
     auto vars = config::parse_config(file_handler::read_file(config::sunshine.config_file.c_str()));
 
     for (auto &[name, value] : vars) {
-      output_tree[name] = std::move(value);
+      outputTree.put(std::move(name), std::move(value));
     }
 
-    send_response(response, output_tree);
+    send_response(response, outputTree);
   }
 
   /**
@@ -787,10 +754,118 @@ namespace confighttp {
 
     print_req(request);
 
-    nlohmann::json output_tree;
-    output_tree["status"] = true;
-    output_tree["locale"] = config::sunshine.locale;
-    send_response(response, output_tree);
+    pt::ptree outputTree;
+    outputTree.put("status", true);
+    outputTree.put("locale", config::sunshine.locale);
+    send_response(response, outputTree);
+  }
+  /*
+  linglong config res fps  
+  */
+  std::vector<std::string>
+  split(const std::string &str, char delimiter) {
+    std::vector<std::string> tokens;
+    size_t start = 0, end = 0;
+    while ((end = str.find(delimiter, start)) != std::string::npos) {
+      tokens.push_back(str.substr(start, end - start));
+      start = end + 1;
+    }
+    tokens.push_back(str.substr(start));
+    return tokens;
+  }
+  void append_or_replace_resolution(pt::ptree& resolutions, int width, int height, int refresh_rate) {
+      // 遍历现有的 <resolution> 节点
+      for (auto& resolution : resolutions) {
+          if (resolution.first == "resolution") {
+              int existing_width = resolution.second.get<int>("width");
+              int existing_height = resolution.second.get<int>("height");
+        //      int existing_refresh_rate = resolution.second.get<int>("refresh_rate");
+
+              // 如果找到重复的 <resolution>，则替换内容
+              if (existing_width == width && existing_height == height ) {
+                  resolution.second.put("width", width);
+                  resolution.second.put("height", height);
+                 // resolution.second.put("refresh_rate", refresh_rate);
+                  return;
+              }
+          }
+      }
+
+      // 如果没有找到重复的 <resolution>，则追加一个新的 <resolution> 节点
+      pt::ptree new_resolution;
+      new_resolution.put("width", width);
+      new_resolution.put("height", height);
+      new_resolution.put("refresh_rate", refresh_rate);
+      resolutions.add_child("resolution", new_resolution);
+  }
+
+  void
+  saveVddSettings(int r_width,int r_height,int r_fps,  std::string gpu_name) {
+    pt::ptree iddOptionTree;
+   // pt::ptree resolutions_nodes;
+    std::string idd_option_path = "c:\\VirtualDisplayDriver\\vdd_settings.xml";
+     try {
+        read_xml(idd_option_path, iddOptionTree,boost::property_tree::xml_parser::trim_whitespace);
+    } catch (const std::exception& e) {
+         BOOST_LOG(info) << "Failed to load XML file: " << e.what() << std::endl;
+       // return 1;
+    }
+
+    // 获取 <resolutions> 节点
+    pt::ptree& resolutions = iddOptionTree.get_child("vdd_settings.resolutions");
+
+    // 示例：追加一个新的 <resolution> 节点
+    if (r_width<10000 && r_height<10000)
+      append_or_replace_resolution(resolutions, r_width, r_height, r_fps);
+    else
+      append_or_replace_resolution(resolutions, 1920, 1080, 60);
+    
+    // 保存修改后的 XML 文件
+    try {
+         auto setting = boost::property_tree::xml_writer_make_settings<std::string>('\t', 1);
+        write_xml(idd_option_path, iddOptionTree,std::locale(),setting);
+    } catch (const std::exception& e) {
+        BOOST_LOG(info) << "Failed to save XML file: " << e.what() << std::endl;
+      //  return 1;
+    }
+
+    BOOST_LOG(info) << "VDDSETTING XML file updated successfully!" << std::endl;
+   
+/*
+    // prepare resolutions setting for vdd
+    boost::regex pattern("\\[|\\]|\\s+");
+    char delimiter = ',';
+    std::string str = boost::regex_replace(resArray, pattern, "");
+    boost::algorithm::trim(str);
+    for (const auto &resolution : split(str, delimiter)) {
+      auto index = resolution.find("x", 0);
+      pt::ptree res_node;
+      res_node.put("width", resolution.substr(0, index));
+      res_node.put("height", resolution.substr(index + 1));
+      for (const auto &fps : split(boost::regex_replace(fpsArray, pattern, ""), delimiter)) {
+        res_node.add("refresh_rate", fps);
+      }
+      resolutions_nodes.push_back(std::make_pair("resolution"s, res_node));
+    }
+
+    
+    if (fs::exists(idd_option_path)) {
+      pt::ptree monitor_node;
+      monitor_node.put("count", 1);
+
+      pt::ptree gpu_node;
+      gpu_node.put("friendlyname", gpu_name);
+
+      iddOptionTree.add_child("monitors", monitor_node);
+      iddOptionTree.add_child("gpu", gpu_node);
+      iddOptionTree.add_child("resolutions", resolutions_nodes);
+
+      pt::ptree root;
+      root.add_child("vdd_settings", iddOptionTree);
+      auto setting = boost::property_tree::xml_writer_make_settings<std::string>('\t', 1);
+      write_xml(idd_option_path, root, std::locale(), setting);
+    }
+    */
   }
 
   /**
@@ -816,24 +891,24 @@ namespace confighttp {
     print_req(request);
 
     std::stringstream ss;
+    std::stringstream configStream;
     ss << request->content.rdbuf();
     try {
       // TODO: Input Validation
-      std::stringstream config_stream;
-      nlohmann::json output_tree;
-      nlohmann::json input_tree = nlohmann::json::parse(ss);
-      for (const auto &[k, v] : input_tree.items()) {
-        if (v.is_null() || (v.is_string() && v.get<std::string>().empty())) {
+      pt::ptree inputTree;
+      pt::ptree outputTree;
+      pt::read_json(ss, inputTree);
+      for (const auto &[k, v] : inputTree) {
+        std::string value = inputTree.get<std::string>(k);
+        if (value.length() == 0 || value.compare("null") == 0) {
           continue;
         }
 
-        // v.dump() will dump valid json, which we do not want for strings in the config right now
-        // we should migrate the config file to straight json and get rid of all this nonsense
-        config_stream << k << " = " << (v.is_string() ? v.get<std::string>() : v.dump()) << std::endl;
+        configStream << k << " = " << value << std::endl;
       }
-      file_handler::write_file(config::sunshine.config_file.c_str(), config_stream.str());
-      output_tree["status"] = true;
-      send_response(response, output_tree);
+      file_handler::write_file(config::sunshine.config_file.c_str(), configStream.str());
+      outputTree.put("status", true);
+      send_response(response, outputTree);
     } catch (std::exception &e) {
       BOOST_LOG(warning) << "SaveConfig: "sv << e.what();
       bad_request(response, request, e.what());
@@ -841,83 +916,40 @@ namespace confighttp {
   }
 
   /**
-   * @brief Upload a cover image.
-   * @param response The HTTP response object.
-   * @param request The HTTP request object.
-   * The body for the post request should be JSON serialized in the following format:
-   * @code{.json}
-   * {
-   *   "key": "igdb_<game_id>",
-   *   "url": "https://images.igdb.com/igdb/image/upload/t_cover_big_2x/<slug>.png"
-   * }
-   * @endcode
-   *
-   * @api_examples{/api/covers/upload| POST| {"key":"igdb_1234","url":"https://images.igdb.com/igdb/image/upload/t_cover_big_2x/abc123.png"}}
-   */
-  void uploadCover(resp_https_t response, req_https_t request) {
-    if (!authenticate(response, request)) {
-      return;
-    }
-
-    std::stringstream ss;
-    ss << request->content.rdbuf();
-    try {
-      nlohmann::json output_tree;
-      nlohmann::json input_tree = nlohmann::json::parse(ss);
-
-      std::string key = input_tree.value("key", "");
-      if (key.empty()) {
-        bad_request(response, request, "Cover key is required");
-        return;
-      }
-      std::string url = input_tree.value("url", "");
-
-      const std::string coverdir = platf::appdata().string() + "/covers/";
-      file_handler::make_directory(coverdir);
-
-      std::basic_string path = coverdir + http::url_escape(key) + ".png";
-      if (!url.empty()) {
-        if (http::url_get_host(url) != "images.igdb.com") {
-          bad_request(response, request, "Only images.igdb.com is allowed");
-          return;
-        }
-        if (!http::download_file(url, path)) {
-          bad_request(response, request, "Failed to download cover");
-          return;
-        }
-      } else {
-        auto data = SimpleWeb::Crypto::Base64::decode(input_tree.value("data", ""));
-
-        std::ofstream imgfile(path);
-        imgfile.write(data.data(), static_cast<int>(data.size()));
-      }
-      output_tree["status"] = true;
-      output_tree["path"] = path;
-      send_response(response, output_tree);
-    } catch (std::exception &e) {
-      BOOST_LOG(warning) << "UploadCover: "sv << e.what();
-      bad_request(response, request, e.what());
-    }
-  }
-
-  /**
-   * @brief Get the logs from the log file.
+   * @brief Restart Sunshine.
    * @param response The HTTP response object.
    * @param request The HTTP request object.
    *
-   * @api_examples{/api/logs| GET| null}
+   * @api_examples{/api/restart| POST| null}
    */
-  void getLogs(resp_https_t response, req_https_t request) {
+  void restart(resp_https_t response, req_https_t request) {
     if (!authenticate(response, request)) {
       return;
     }
 
     print_req(request);
 
-    std::string content = file_handler::read_file(config::sunshine.log_file.c_str());
-    SimpleWeb::CaseInsensitiveMultimap headers;
-    headers.emplace("Content-Type", "text/plain");
-    response->write(SimpleWeb::StatusCode::success_ok, content, headers);
+    // We may not return from this call
+    platf::restart();
+  }
+
+  /**
+   * @brief Reset the display device persistence.
+   * @param response The HTTP response object.
+   * @param request The HTTP request object.
+   *
+   * @api_examples{/api/reset-display-device-persistence| POST| null}
+   */
+  void resetDisplayDevicePersistence(resp_https_t response, req_https_t request) {
+    if (!authenticate(response, request)) {
+      return;
+    }
+
+    print_req(request);
+
+    pt::ptree outputTree;
+    outputTree.put("status", display_device::reset_persistence());
+    send_response(response, outputTree);
   }
 
   /**
@@ -946,21 +978,23 @@ namespace confighttp {
 
     std::vector<std::string> errors = {};
     std::stringstream ss;
-    std::stringstream config_stream;
+    std::stringstream configStream;
     ss << request->content.rdbuf();
+
     try {
       // TODO: Input Validation
-      nlohmann::json output_tree;
-      nlohmann::json input_tree = nlohmann::json::parse(ss);
-      std::string username = input_tree.value("currentUsername", "");
-      std::string newUsername = input_tree.value("newUsername", "");
-      std::string password = input_tree.value("currentPassword", "");
-      std::string newPassword = input_tree.value("newPassword", "");
-      std::string confirmPassword = input_tree.value("confirmNewPassword", "");
-      if (newUsername.empty()) {
+      pt::ptree inputTree;
+      pt::ptree outputTree;
+      pt::read_json(ss, inputTree);
+      auto username = inputTree.count("currentUsername") > 0 ? inputTree.get<std::string>("currentUsername") : "";
+      auto newUsername = inputTree.get<std::string>("newUsername");
+      auto password = inputTree.count("currentPassword") > 0 ? inputTree.get<std::string>("currentPassword") : "";
+      auto newPassword = inputTree.count("newPassword") > 0 ? inputTree.get<std::string>("newPassword") : "";
+      auto confirmPassword = inputTree.count("confirmNewPassword") > 0 ? inputTree.get<std::string>("confirmNewPassword") : "";
+      if (newUsername.length() == 0) {
         newUsername = username;
       }
-      if (newUsername.empty()) {
+      if (newUsername.length() == 0) {
         errors.emplace_back("Invalid Username");
       } else {
         auto hash = util::hex(crypto::hash(password + config::sunshine.salt)).to_string();
@@ -970,7 +1004,7 @@ namespace confighttp {
           } else {
             http::save_user_creds(config::sunshine.credentials_file, newUsername, newPassword);
             http::reload_user_creds(config::sunshine.credentials_file);
-            output_tree["status"] = true;
+            outputTree.put("status", true);
           }
         } else {
           errors.emplace_back("Invalid Current Credentials");
@@ -986,7 +1020,7 @@ namespace confighttp {
         return;
       }
 
-      send_response(response, output_tree);
+      send_response(response, outputTree);
     } catch (std::exception &e) {
       BOOST_LOG(warning) << "SavePassword: "sv << e.what();
       bad_request(response, request, e.what());
@@ -1016,20 +1050,16 @@ namespace confighttp {
 
     std::stringstream ss;
     ss << request->content.rdbuf();
+
     try {
-      nlohmann::json output_tree;
-      nlohmann::json input_tree = nlohmann::json::parse(ss);
-      const std::string name = input_tree.value("name", "");
-      const std::string pin = input_tree.value("pin", "");
-
-      int _pin = 0;
-      _pin = std::stoi(pin);
-      if (_pin < 0 || _pin > 9999) {
-        bad_request(response, request, "PIN must be between 0000 and 9999");
-      }
-
-      output_tree["status"] = nvhttp::pin(pin, name);
-      send_response(response, output_tree);
+      // TODO: Input Validation
+      pt::ptree inputTree;
+      pt::ptree outputTree;
+      pt::read_json(ss, inputTree);
+      std::string pin = inputTree.get<std::string>("pin");
+      std::string name = inputTree.get<std::string>("name");
+      outputTree.put("status", nvhttp::pin(pin, name));
+      send_response(response, outputTree);
     } catch (std::exception &e) {
       BOOST_LOG(warning) << "SavePin: "sv << e.what();
       bad_request(response, request, e.what());
@@ -1037,40 +1067,106 @@ namespace confighttp {
   }
 
   /**
-   * @brief Reset the display device persistence.
+   * @brief Unpair all clients.
    * @param response The HTTP response object.
    * @param request The HTTP request object.
    *
-   * @api_examples{/api/reset-display-device-persistence| POST| null}
+   * @api_examples{/api/clients/unpair-all| POST| null}
    */
-  void resetDisplayDevicePersistence(resp_https_t response, req_https_t request) {
+  void unpairAll(resp_https_t response, req_https_t request) {
     if (!authenticate(response, request)) {
       return;
     }
 
     print_req(request);
 
-    nlohmann::json output_tree;
-    output_tree["status"] = display_device::reset_persistence();
-    send_response(response, output_tree);
+    nvhttp::erase_all_clients();
+    proc::proc.terminate();
+
+    pt::ptree outputTree;
+    outputTree.put("status", true);
+    send_response(response, outputTree);
   }
 
   /**
-   * @brief Restart Sunshine.
+   * @brief Unpair a client.
    * @param response The HTTP response object.
    * @param request The HTTP request object.
+   * The body for the post request should be JSON serialized in the following format:
+   * @code{.json}
+   * {
+   *  "uuid": "<uuid>"
+   * }
+   * @endcode
    *
-   * @api_examples{/api/restart| POST| null}
+   * @api_examples{/api/unpair| POST| {"uuid":"1234"}}
    */
-  void restart(resp_https_t response, req_https_t request) {
+  void unpair(resp_https_t response, req_https_t request) {
     if (!authenticate(response, request)) {
       return;
     }
 
     print_req(request);
 
-    // We may not return from this call
-    platf::restart();
+    std::stringstream ss;
+    ss << request->content.rdbuf();
+
+    try {
+      // TODO: Input Validation
+      pt::ptree inputTree;
+      pt::ptree outputTree;
+      pt::read_json(ss, inputTree);
+      std::string uuid = inputTree.get<std::string>("uuid");
+      outputTree.put("status", nvhttp::unpair_client(uuid));
+      send_response(response, outputTree);
+    } catch (std::exception &e) {
+      BOOST_LOG(warning) << "Unpair: "sv << e.what();
+      bad_request(response, request, e.what());
+    }
+  }
+
+  /**
+   * @brief Get the list of paired clients.
+   * @param response The HTTP response object.
+   * @param request The HTTP request object.
+   *
+   * @api_examples{/api/clients/list| GET| null}
+   */
+  void listClients(resp_https_t response, req_https_t request) {
+    if (!authenticate(response, request)) {
+      return;
+    }
+
+    print_req(request);
+
+    const pt::ptree named_certs = nvhttp::get_all_clients();
+
+    pt::ptree outputTree;
+    outputTree.put("status", false);
+    outputTree.add_child("named_certs", named_certs);
+    outputTree.put("status", true);
+    send_response(response, outputTree);
+  }
+
+  /**
+   * @brief Close the currently running application.
+   * @param response The HTTP response object.
+   * @param request The HTTP request object.
+   *
+   * @api_examples{/api/apps/close| POST| null}
+   */
+  void closeApp(resp_https_t response, req_https_t request) {
+    if (!authenticate(response, request)) {
+      return;
+    }
+
+    print_req(request);
+
+    proc::proc.terminate();
+
+    pt::ptree outputTree;
+    outputTree.put("status", true);
+    send_response(response, outputTree);
   }
 
   void start() {
@@ -1113,7 +1209,7 @@ namespace confighttp {
     server.resource["^/api/password$"]["POST"] = savePassword;
     server.resource["^/api/apps/([0-9]+)$"]["DELETE"] = deleteApp;
     server.resource["^/api/clients/unpair-all$"]["POST"] = unpairAll;
-    server.resource["^/api/clients/list$"]["GET"] = getClients;
+    server.resource["^/api/clients/list$"]["GET"] = listClients;
     server.resource["^/api/clients/unpair$"]["POST"] = unpair;
     server.resource["^/api/apps/close$"]["POST"] = closeApp;
     server.resource["^/api/covers/upload$"]["POST"] = uploadCover;

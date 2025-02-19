@@ -36,6 +36,7 @@ typedef enum _D3DKMT_GPU_PREFERENCE_QUERY_STATE: DWORD {
 #include "src/platform/common.h"
 #include "src/video.h"
 
+
 namespace platf {
   using namespace std::literals;
 }
@@ -426,6 +427,21 @@ namespace platf::dxgi {
     }
   }
 
+std::string wstring2string(std::wstring wstr)
+{
+    std::string result;
+    //获取缓冲区大小，并申请空间，缓冲区大小事按字节计算的  
+    int len = WideCharToMultiByte(CP_ACP, 0, wstr.c_str(), wstr.size(), NULL, 0, NULL, NULL);
+    char* buffer = new char[len + 1];
+    //宽字节编码转换成多字节编码  
+    WideCharToMultiByte(CP_ACP, 0, wstr.c_str(), wstr.size(), buffer, len, NULL, NULL);
+    buffer[len] = '\0';
+    //删除缓冲区并返回值  
+    result.append(buffer);
+    delete[] buffer;
+    return result;
+}
+
   int display_base_t::init(const ::video::config_t &config, const std::string &display_name) {
     std::once_flag windows_cpp_once_flag;
 
@@ -467,6 +483,32 @@ namespace platf::dxgi {
     auto adapter_name = from_utf8(config::video.adapter_name);
     auto output_name = from_utf8(display_name);
 
+    /*
+    linglong  遍历注册表，找到虚拟显示器，获取当前坐标，方法耗时且不精准，最好使用id获取
+    */
+       DEVMODE devMode = { 0 };
+       DISPLAY_DEVICE device_vdd = { 0 };
+        device_vdd.cb = sizeof(DISPLAY_DEVICE);
+    //    const auto vdd_name {display_device::map_output_name(config::video.output_name)};
+        
+        for (int i = 0; EnumDisplayDevices(NULL, i, &device_vdd, 0); i++) {
+
+        //  BOOST_LOG(info)<<"LINGLONG Found vddstring:"<<device_vdd.DeviceString<<" vddid:"<<device_vdd.DeviceID<<" vddkey:"<<device_vdd.DeviceKey;
+            //  if(device_vdd.DeviceName==vdd_name)
+            std::string vdd_name="Virtual Display Driver";
+            if(device_vdd.DeviceString==vdd_name)
+              {
+                  EnumDisplaySettings(device_vdd.DeviceName, ENUM_REGISTRY_SETTINGS, &devMode);
+                     BOOST_LOG(info)<<"LINGLONG Found vddstring:"<<device_vdd.DeviceString<<" vddid:"<<device_vdd.DeviceID<<" vddoutput:"<<device_vdd.DeviceName;
+                  break;
+              }
+                  
+        }
+
+      
+
+
+
     adapter_t::pointer adapter_p;
     for (int tries = 0; tries < 2; ++tries) {
       for (int x = 0; factory->EnumAdapters1(x, &adapter_p) != DXGI_ERROR_NOT_FOUND; ++x) {
@@ -479,19 +521,37 @@ namespace platf::dxgi {
           continue;
         }
 
+
+
+
+
         dxgi::output_t::pointer output_p;
+
         for (int y = 0; adapter_tmp->EnumOutputs(y, &output_p) != DXGI_ERROR_NOT_FOUND; ++y) {
           dxgi::output_t output_tmp {output_p};
 
           DXGI_OUTPUT_DESC desc;
           output_tmp->GetDesc(&desc);
-
+/*
           if (!output_name.empty() && desc.DeviceName != output_name) {
+
             continue;
-          }
+            判断条件改为，与虚拟显示器坐标相同就是要输出的device
+          }*/
+        
+
+            if(!output_name.empty() && desc.DesktopCoordinates.top==devMode.dmPosition.y&&desc.DesktopCoordinates.left==devMode.dmPosition.x)
+            {
+              BOOST_LOG(info)<<"LINGLONG DEVICE FOUND  top:"sv<<devMode.dmPosition.y<<" left:"sv<<devMode.dmPosition.x;
+            //  BOOST_LOG(info)<<"LINGLONG DEVICE FOUND  name:"sv<<desc.DeviceName;
+            }
+              
+           else
+            continue;
 
           if (desc.AttachedToDesktop && test_dxgi_duplication(adapter_tmp, output_tmp, false)) {
             output = std::move(output_tmp);
+   
 
             offset_x = desc.DesktopCoordinates.left;
             offset_y = desc.DesktopCoordinates.top;

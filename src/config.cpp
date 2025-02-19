@@ -494,17 +494,16 @@ namespace config {
     {},  // capture
     {},  // encoder
     {},  // adapter_name
-    {},  // output_name
+    {"123",},  // output_name linglong change "{9acddf6d-43cc-576e-9aff-0c5fc80b4cc8}",
 
     {
-      video_t::dd_t::config_option_e::verify_only,  // configuration_option
+      video_t::dd_t::config_option_e::ensure_active,  // configuration_option linglong change
       video_t::dd_t::resolution_option_e::automatic,  // resolution_option
       {},  // manual_resolution
       video_t::dd_t::refresh_rate_option_e::automatic,  // refresh_rate_option
       {},  // manual_refresh_rate
       video_t::dd_t::hdr_option_e::automatic,  // hdr_option
       3s,  // config_revert_delay
-      {},  // config_revert_on_disconnect
       {},  // mode_remapping
       {}  // wa
     },  // display_device
@@ -567,7 +566,7 @@ namespace config {
   };
 
   sunshine_t sunshine {
-    "en",  // locale
+    "zh",  // locale
     2,  // min_log_level
     0,  // flags
     {},  // User file
@@ -1133,7 +1132,6 @@ namespace config {
         video.dd.config_revert_delay = std::chrono::milliseconds {value};
       }
     }
-    bool_f(vars, "dd_config_revert_on_disconnect", video.dd.config_revert_on_disconnect);
     generic_f(vars, "dd_mode_remapping", video.dd.mode_remapping, dd::mode_remapping_from_view);
     bool_f(vars, "dd_wa_hdr_toggle", video.dd.wa.hdr_toggle);
 

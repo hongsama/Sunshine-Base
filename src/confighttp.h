@@ -5,6 +5,7 @@
 #pragma once
 
 // standard includes
+#include <functional>
 #include <string>
 
 // local includes
@@ -15,6 +16,7 @@
 namespace confighttp {
   constexpr auto PORT_HTTPS = 1;
   void start();
+  void saveVddSettings(int r_width,int r_height,int r_fps,  std::string gpu_name);
 }  // namespace confighttp
 
 // mime types map

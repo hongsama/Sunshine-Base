@@ -66,6 +66,15 @@ namespace display_device {
    */
   void configure_display(const config::video_t &video_config, const rtsp_stream::launch_session_t &session);
 
+  /*
+  *linglong start and stop vdd
+  */
+  void start_vdd();
+  void stop_vdd();
+  void init_output();
+
+ // void prepare_vdd(parsed_config_t &config, const rtsp_stream::launch_session_t &session);
+
   /**
    * @brief Configure the display device using the provided configuration.
    *

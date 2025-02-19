@@ -93,7 +93,7 @@ namespace system_tray {
 
     lifetime::exit_sunshine(0, true);
   }
-
+/*linglong menu*/
   // Tray menu
   static struct tray tray = {
     .icon = TRAY_ICON,
@@ -101,9 +101,9 @@ namespace system_tray {
     .menu =
       (struct tray_menu[]) {
         // todo - use boost/locale to translate menu strings
-        {.text = "Open Sunshine", .cb = tray_open_ui_cb},
+        {.text = "Open Moonshadow", .cb = tray_open_ui_cb},
         {.text = "-"},
-        {.text = "Donate",
+       /* {.text = "Donate",
          .submenu =
            (struct tray_menu[]) {
              {.text = "GitHub Sponsors", .cb = tray_donate_github_cb},
@@ -111,10 +111,10 @@ namespace system_tray {
              {.text = "PayPal", .cb = tray_donate_paypal_cb},
              {.text = nullptr}
            }},
-        {.text = "-"},
+        {.text = "-"},*/
   // Currently display device settings are only supported on Windows
   #ifdef _WIN32
-        {.text = "Reset Display Device Config", .cb = tray_reset_display_device_config_cb},
+      /*  {.text = "Reset Display Device Config", .cb = tray_reset_display_device_config_cb},*/
   #endif
         {.text = "Restart", .cb = tray_restart_cb},
         {.text = "Quit", .cb = tray_quit_cb},

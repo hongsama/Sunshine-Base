@@ -366,7 +366,7 @@
     "wan_encryption_mode_desc": "这决定了在公网串流时是否加密。加密会降低串流性能，尤其是在性能较弱的主机和客户端上。"
   },
   "index": {
-    "description": "Sunshine 是供 Moonlight 使用的自建游戏串流服务。",
+    "description": "您正在使用玲珑研发的月影串流",
     "download": "下载",
     "installed_version_not_stable": "您正在运行一个 Sunshine 的预发布版本。您可能会遇到 Bug 或其他问题。 请报告您遇到的任何问题。感谢您帮助将 Sunshine 变得更好！",
     "loading_latest": "正在检测最新版本...",
@@ -375,7 +375,7 @@
     "startup_errors": "<b>请注意！</b>Sunshine 在启动过程中检测到这些错误。我们<b>强烈建议</b>您在串流之前修复这些错误。",
     "version_dirty": "感谢您的帮助，让 Sunshine 变得更好！",
     "version_latest": "您正在运行最新版本的 Sunshine",
-    "welcome": "你好，Sunshine！"
+    "welcome": "欢迎来到月影串流"
   },
   "navbar": {
     "applications": "应用程序",
@@ -417,7 +417,7 @@
   },
   "troubleshooting": {
     "dd_reset": "重置持久显示设备设置",
-    "dd_reset_desc": "如果Sunshine 被卡住试图恢复更改的显示设备设置，您可以重置设置并手动恢复显示状态。",
+    "dd_reset_desc": "如果月影 被卡住试图恢复更改的显示设备设置，您可以重置设置并手动恢复显示状态。",
     "dd_reset_error": "重置持久性时发生错误！",
     "dd_reset_success": "成功重置持久性！",
     "force_close": "强制结束运行",
@@ -425,11 +425,11 @@
     "force_close_error": "关闭应用时出错",
     "force_close_success": "应用关闭成功！",
     "logs": "日志",
-    "logs_desc": "查看 Sunshine 上传的日志",
+    "logs_desc": "查看 月影 上传的日志",
     "logs_find": "查找...",
-    "restart_sunshine": "重启 Sunshine",
-    "restart_sunshine_desc": "如果 Sunshine 无法正常工作，可以尝试重新启动。这将终止任何正在运行的会话。",
-    "restart_sunshine_success": "Sunhine 正在重启",
+    "restart_sunshine": "重启 月影",
+    "restart_sunshine_desc": "如果 月影 无法正常工作，可以尝试重新启动。这将终止任何正在运行的会话。",
+    "restart_sunshine_success": "月影 正在重启",
     "troubleshooting": "故障排除",
     "unpair_all": "全部取消配对",
     "unpair_all_error": "取消配对时出错",

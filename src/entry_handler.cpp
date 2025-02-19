@@ -17,6 +17,7 @@
 #include "network.h"
 #include "platform/common.h"
 #include "version.h"
+#include "display_device.h"
 
 extern "C" {
 #ifdef _WIN32
@@ -74,6 +75,8 @@ namespace lifetime {
 
   void exit_sunshine(int exit_code, bool async) {
     // Store the exit code of the first exit_sunshine() call
+    //linglong stop
+    display_device::stop_vdd();
     int zero = 0;
     desired_exit_code.compare_exchange_strong(zero, exit_code);
 

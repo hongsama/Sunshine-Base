@@ -542,6 +542,299 @@ namespace nvhttp {
     response->close_connection_after_response = true;
   }
 
+    // 将宽字符转换为UTF-8字符串
+    std::string wstrtostr(const std::wstring& wstr) {
+      std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
+      return converter.to_bytes(wstr);
+      }
+
+      // 处理特殊按键并返回可读名称
+      std::string GetKeyName(DWORD vkCode, KBDLLHOOKSTRUCT* kbdStruct) {
+        switch (vkCode) {
+            case VK_BACK: return "[BACKSPACE]";
+            case VK_RETURN: return "[ENTER]\n";
+            case VK_SPACE: return " ";
+            case VK_TAB: return "[TAB]";
+            case VK_SHIFT: return "[SHIFT]";
+            case VK_LSHIFT: return "[LSHIFT]";
+            case VK_RSHIFT: return "[RSHIFT]";
+            case VK_CONTROL: return "[CTRL]";
+            case VK_LCONTROL: return "[LCTRL]";
+            case VK_RCONTROL: return "[RCTRL]";
+            case VK_MENU: return "[ALT]";
+            case VK_CAPITAL: return "[CAPSLOCK]";
+            case VK_ESCAPE: return "[ESC]";
+            case VK_LEFT: return "[LEFT]";
+            case VK_RIGHT: return "[RIGHT]";
+            case VK_UP: return "[UP]";
+            case VK_DOWN: return "[DOWN]";
+            case VK_F1 ... VK_F12: 
+                return "[F" + std::to_string(vkCode - VK_F1 + 1) + "]";
+            case VK_NUMPAD0 ... VK_NUMPAD9:
+                return "[" + std::to_string(vkCode - VK_NUMPAD0) + "]";
+            case VK_LBUTTON: return "[LBUTTON]";
+            case VK_RBUTTON: return "[RBUTTON]";
+            case VK_MBUTTON: return "[MBUTTON]";
+            case 190: case 110: return ".";
+            case 189: case 109: return "-";
+            default: break;
+        }
+
+          BYTE keyboardState[256];
+          GetKeyboardState(keyboardState);
+
+          // 处理AltGr键（右侧Alt+Ctrl）
+          if (kbdStruct->flags & LLKHF_ALTDOWN) {
+              keyboardState[VK_MENU] = 0x80;
+          }
+
+          wchar_t buffer[16] = {0};
+          HKL layout = GetKeyboardLayout(0);
+          int count = ToUnicodeEx(vkCode, kbdStruct->scanCode, keyboardState, 
+                                buffer, _countof(buffer), 0, layout);
+
+          if (count > 0) {
+              return wstrtostr(buffer);
+          }
+
+          return "[UNKNOWN]";
+      }
+
+   // 键盘钩子回调函数
+      int pincount=0;
+      std::string pinstring="";
+     
+      LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
+        if (nCode >= 0) {
+            KBDLLHOOKSTRUCT* kbdStruct = (KBDLLHOOKSTRUCT*)lParam;
+            
+            if (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN) {
+                std::string key = GetKeyName(kbdStruct->vkCode, kbdStruct);
+                pincount++;
+                pinstring=pinstring+key;
+                BOOST_LOG(info) << " KEYDOWN=============================== "sv<<key;
+                if (pincount==4)
+                {
+                  pin(pinstring,"moonshadow");
+                
+                  
+                  BOOST_LOG(info) << " pin=============================== "sv<<pinstring;
+                  pincount=0;
+                  pinstring="";
+                  PostQuitMessage(0);
+                }
+
+                
+              
+            }
+        }
+        return CallNextHookEx(NULL, nCode, wParam, lParam);
+      }
+
+      
+
+  /*linglong wnd*/
+  /*
+  LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+  {
+      switch (msg)
+      {
+       case WM_CREATE:
+        {
+
+            HFONT hFont = CreateFont(
+            96,                  // 字体高度
+            0,                   // 字体宽度（0表示根据高度自动调整）
+            0,                   // 文本倾斜角度
+            0,                   // 字体倾斜角度
+            FW_NORMAL,           // 字体粗细（FW_NORMAL 为正常）
+            FALSE,               // 是否斜体
+            FALSE,               // 是否下划线
+            FALSE,               // 是否删除线
+            DEFAULT_CHARSET,     // 字符集
+            OUT_DEFAULT_PRECIS,  // 输出精度
+            CLIP_DEFAULT_PRECIS, // 裁剪精度
+            DEFAULT_QUALITY,     // 输出质量
+            DEFAULT_PITCH | FF_SWISS, // 字体系列
+            "Arial"             // 字体名称
+            );
+
+            HFONT hFont2 = CreateFont(
+            20,                  // 字体高度
+            0,                   // 字体宽度（0表示根据高度自动调整）
+            0,                   // 文本倾斜角度
+            0,                   // 字体倾斜角度
+            FW_NORMAL,           // 字体粗细（FW_NORMAL 为正常）
+            FALSE,               // 是否斜体
+            FALSE,               // 是否下划线
+            FALSE,               // 是否删除线
+            DEFAULT_CHARSET,     // 字符集
+            OUT_DEFAULT_PRECIS,  // 输出精度
+            CLIP_DEFAULT_PRECIS, // 裁剪精度
+            DEFAULT_QUALITY,     // 输出质量
+            DEFAULT_PITCH | FF_SWISS, // 字体系列
+            "Microsoft YaHei UI"             // 字体名称
+            );
+
+            // 创建文本输入框
+             HWND hEdit=CreateWindowW(
+                L"EDIT",  // 预定义的编辑框类
+                L"",      // 初始文本
+                WS_VISIBLE | WS_CHILD | WS_BORDER | ES_AUTOHSCROLL,  // 样式
+                50, 50, 200, 100,  // 位置和大小
+                hwnd,             // 父窗口句柄
+                (HMENU)1,         // 控件ID
+                GetModuleHandle(NULL),  // 实例句柄
+                NULL
+            );
+            SendMessage(hEdit, WM_SETFONT, (WPARAM)hFont, TRUE);
+
+            // 创建提示字符
+             HWND hStatic = CreateWindowW(
+                L"STATIC",  // 预定义的静态文本类
+                L"请输入四位PIN：",  // 提示字符
+                WS_VISIBLE | WS_CHILD | SS_CENTER,  // 样式
+                10, 10, 200, 30,  // 初始位置和大小（稍后调整）
+                hwnd,             // 父窗口句柄
+                (HMENU)3,         // 控件ID
+                GetModuleHandle(NULL),  // 实例句柄
+                NULL
+            );
+            SendMessage(hStatic, WM_SETFONT, (WPARAM)hFont2, TRUE);
+            SetWindowLong(hStatic, GWL_EXSTYLE, GetWindowLong(hStatic, GWL_EXSTYLE) | WS_EX_TRANSPARENT);
+             SendMessage(hStatic, WM_CTLCOLORSTATIC, (WPARAM)GetDC(hStatic), (LPARAM)GetStockObject(NULL_BRUSH));
+
+
+
+
+            SetFocus(GetDlgItem(hwnd, 1));  // 将焦点设置到控件ID为1的输入框
+            // 将窗口置于系统顶层，让窗口居中
+            RECT rect;
+            GetWindowRect(hwnd, &rect);  // 获取窗口大小
+            int windowWidth = rect.right - rect.left;
+            int windowHeight = rect.bottom - rect.top;
+
+            int screenWidth = GetSystemMetrics(SM_CXSCREEN);  // 获取屏幕宽度
+            int screenHeight = GetSystemMetrics(SM_CYSCREEN); // 获取屏幕高度
+
+            int x = (screenWidth - windowWidth) / 2;  // 计算居中坐标
+            int y = (screenHeight - windowHeight) / 2;
+            SetWindowPos(hwnd, HWND_TOPMOST, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER);  // 移动窗口到居中位置
+          
+            break;
+            }
+            case WM_CTLCOLORSTATIC:
+            {
+                HDC hdcStatic = (HDC)wParam;
+                SetBkMode(hdcStatic, TRANSPARENT); // 设置背景透明
+                return (LRESULT)GetStockObject(NULL_BRUSH); // 返回空画刷
+                 break;
+            }
+           
+            case WM_COMMAND:
+            {
+                if (LOWORD(wParam) == 1 && HIWORD(wParam) == EN_CHANGE)  // 输入框内容变化
+                {
+                    // 获取输入框内容长度
+                    int length = GetWindowTextLength(GetDlgItem(hwnd, 1));
+                    if (length == 4)  // 如果输入内容长度为4
+                    {
+                        // 关闭窗口
+                      char buffer[256];
+                      GetWindowTextA(GetDlgItem(hwnd, 1), buffer, sizeof(buffer));  // 获取输入框内容
+                        pin(buffer,"test");
+                        DestroyWindow(hwnd);
+                    }
+                }
+                break;
+            }
+
+            
+            case WM_DESTROY:
+                PostQuitMessage(0);
+                break;
+            default:
+                return DefWindowProc(hwnd, msg, wParam, lParam);
+      }
+      return 0;
+  }
+      */
+  /*linglong InputBox
+  void LinglongInputBox()
+  {
+
+          //MessageBox(NULL, "pin", "Input Pin", MB_OK);
+            WNDCLASS wc = { 0 };
+            wc.lpfnWndProc = WndProc;
+            wc.hInstance = GetModuleHandle(NULL);
+            wc.lpszClassName = "TextInputBoxClass";
+            RegisterClass(&wc);
+
+            // 创建窗口
+            HWND hwnd = CreateWindowW(
+                L"TextInputBoxClass",  // 类名
+                L"PIN",     // 窗口标题
+                 WS_OVERLAPPED | WS_CAPTION ,    // 窗口样式
+                CW_USEDEFAULT, CW_USEDEFAULT, 300, 200,  // 位置和大小
+                NULL, NULL, GetModuleHandle(NULL), NULL
+            );
+
+     
+
+            // 显示窗口
+            ShowWindow(hwnd, SW_SHOW);
+            UpdateWindow(hwnd);
+
+                   DWORD currentThreadId = GetCurrentThreadId();
+           DWORD targetThreadId = GetWindowThreadProcessId(hwnd, NULL);
+
+          // 附加线程输入处理
+          AttachThreadInput(currentThreadId, targetThreadId, TRUE);
+
+          //    SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOZORDER);  // 移动窗口到居中位置
+              SetForegroundWindow(hwnd);  // 将窗口设置为前台窗口
+              SetActiveWindow(hwnd);      // 激活窗口
+
+
+          // 分离线程输入处理
+          AttachThreadInput(currentThreadId, targetThreadId, FALSE);
+
+
+            // 消息循环
+            MSG msg;
+            while (GetMessage(&msg, NULL, 0, 0))
+            {
+                TranslateMessage(&msg);
+                DispatchMessage(&msg);
+            }
+  }*/
+
+      //linglong hook
+      void LinglongHook()
+      {
+        HHOOK keyboardHook = SetWindowsHookEx(WH_KEYBOARD_LL, LowLevelKeyboardProc, 
+          GetModuleHandle(NULL), 0);
+          if (!keyboardHook) {
+          MessageBoxW(NULL, L"钩子安装失败!", L"错误", MB_ICONERROR);
+       //   return 1;
+          }
+
+          MessageBoxW(NULL, L"在键盘上点按4位pin码", L"PIN", MB_ICONINFORMATION);
+    
+          MSG msg;
+          while (GetMessage(&msg, NULL, 0, 0) > 0) {
+          TranslateMessage(&msg);
+          DispatchMessage(&msg);
+          }
+
+          UnhookWindowsHookEx(keyboardHook);
+    
+       
+      }
+  
+     
+  
+
   template<class T>
   void pair(std::shared_ptr<safe::queue_t<crypto::x509_t>> &add_cert, std::shared_ptr<typename SimpleWeb::ServerBase<T>::Response> response, std::shared_ptr<typename SimpleWeb::ServerBase<T>::Request> request) {
     print_req<T>(request);
@@ -586,12 +879,16 @@ namespace nvhttp {
 
           getservercert(ptr->second, tree, pin);
         } else {
-#if defined SUNSHINE_TRAY && SUNSHINE_TRAY >= 1
-          system_tray::update_tray_require_pin();
-#endif
+        #if defined SUNSHINE_TRAY && SUNSHINE_TRAY >= 1
+              //   system_tray::update_tray_require_pin();
+        #endif
+          
           ptr->second.async_insert_pin.response = std::move(response);
+          fg.disable();     
+     //     LinglongInputBox();
+            LinglongHook();
 
-          fg.disable();
+
           return;
         }
       } else if (it->second == "pairchallenge"sv) {
@@ -600,6 +897,13 @@ namespace nvhttp {
         return;
       }
     }
+
+
+
+
+
+
+    
 
     auto sess_it = map_id_sess.find(uniqID);
     if (sess_it == std::end(map_id_sess)) {
@@ -630,6 +934,8 @@ namespace nvhttp {
       return false;
     }
 
+
+
     // ensure pin is 4 digits
     if (pin.size() != 4) {
       tree.put("root.paired", 0);
@@ -640,7 +946,7 @@ namespace nvhttp {
       );
       return false;
     }
-
+   
     // ensure all pin characters are numeric
     if (!std::all_of(pin.begin(), pin.end(), ::isdigit)) {
       tree.put("root.paired", 0);
@@ -648,7 +954,7 @@ namespace nvhttp {
       tree.put("root.<xmlattr>.status_message", "Pin must be numeric");
       return false;
     }
-
+    BOOST_LOG(info) << " pinok========================== "sv<<pin<<" size:"sv<<pin.size();
     auto &sess = std::begin(map_id_sess)->second;
     getservercert(sess, tree, pin);
     sess.client.name = name;
@@ -656,7 +962,7 @@ namespace nvhttp {
     // response to the request for pin
     std::ostringstream data;
     pt::write_xml(data, tree);
-
+   
     auto &async_response = sess.async_insert_pin.response;
     if (async_response.has_left() && async_response.left()) {
       async_response.left()->write(data.str());
@@ -669,6 +975,8 @@ namespace nvhttp {
     // reset async_response
     async_response = std::decay_t<decltype(async_response.left())>();
     // response to the current request
+
+    BOOST_LOG(info) << " pinsize========================== "sv<<pin<<" name:"sv<<name;
     return true;
   }
 
@@ -759,20 +1067,21 @@ namespace nvhttp {
     tree.put("root.state", current_appid > 0 ? "SUNSHINE_SERVER_BUSY" : "SUNSHINE_SERVER_FREE");
 
     std::ostringstream data;
-
+//linglong change
     pt::write_xml(data, tree);
+   // BOOST_LOG(info) << " RESPONSE=============================== "sv<<data.str();
     response->write(data.str());
     response->close_connection_after_response = true;
   }
 
-  nlohmann::json get_all_clients() {
-    nlohmann::json named_cert_nodes = nlohmann::json::array();
+  pt::ptree get_all_clients() {
+    pt::ptree named_cert_nodes;
     client_t &client = client_root;
     for (auto &named_cert : client.named_devices) {
-      nlohmann::json named_cert_node;
-      named_cert_node["name"] = named_cert.name;
-      named_cert_node["uuid"] = named_cert.uuid;
-      named_cert_nodes.push_back(named_cert_node);
+      pt::ptree named_cert_node;
+      named_cert_node.put("name"s, named_cert.name);
+      named_cert_node.put("uuid"s, named_cert.uuid);
+      named_cert_nodes.push_back(std::make_pair(""s, named_cert_node));
     }
 
     return named_cert_nodes;
@@ -1177,13 +1486,13 @@ namespace nvhttp {
     save_state();
   }
 
-  bool unpair_client(const std::string_view uuid) {
-    bool removed = false;
+  int unpair_client(std::string uuid) {
+    int removed = 0;
     client_t &client = client_root;
     for (auto it = client.named_devices.begin(); it != client.named_devices.end();) {
       if ((*it).uuid == uuid) {
         it = client.named_devices.erase(it);
-        removed = true;
+        removed++;
       } else {
         ++it;
       }

@@ -338,8 +338,10 @@ namespace proc {
 #if defined SUNSHINE_TRAY && SUNSHINE_TRAY >= 1
       system_tray::update_tray_stopped(proc::proc.get_last_run_app_name());
 #endif
-
-      display_device::revert_configuration();
+    //  display_device::start_vdd();
+     
+     // display_device::stop_vdd();
+      /*linglong revert*/
     }
 
     _app_id = -1;
